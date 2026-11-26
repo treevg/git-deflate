@@ -5,6 +5,8 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [unreleased]
+- Switched to Git tag-based versioning, eliminating redundant VERSION files.
+- Updated SemVer bump tooling and GitHub Actions workflows to read from git tags.
 
 ### Added
 - Initial release of `git-deflate`.

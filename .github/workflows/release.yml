@@ -50,12 +50,13 @@ jobs:
           
           VERSION="${{ steps.version_bump.outputs.version }}"
           if [ -z "$VERSION" ]; then
-            VERSION=$(cat VERSION)
+            echo "Error: Version not set by version_bump step." >&2
+            exit 1
           fi
           
           echo "Releasing version: v$VERSION"
           
-          git add VERSION CHANGELOG.md
+          git add CHANGELOG.md
           git commit -m "chore(release): v$VERSION"
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin main --follow-tags

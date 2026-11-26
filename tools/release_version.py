@@ -3,9 +3,47 @@ import os
 import sys
 import re
 import datetime
+import subprocess
 
-VERSION_FILE = 'VERSION'
 CHANGELOG_FILE = 'CHANGELOG.md'
+
+def get_current_version():
+    # 1. Try git describe (latest tag reachable on current branch)
+    try:
+        tag = subprocess.check_output(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8').strip()
+        if tag:
+            return tag.lstrip('v')
+    except Exception:
+        pass
+
+    # 2. Try git tag list sorted by version
+    try:
+        tags = subprocess.check_output(
+            ["git", "tag", "--sort=-version:refname"],
+            stderr=subprocess.DEVNULL
+        ).decode('utf-8').splitlines()
+        for t in tags:
+            t = t.strip()
+            if t:
+                return t.lstrip('v')
+    except Exception:
+        pass
+
+    # 3. Try reading latest version heading from CHANGELOG.md
+    if os.path.exists(CHANGELOG_FILE):
+        try:
+            with open(CHANGELOG_FILE, 'r', encoding='utf-8') as f:
+                for line in f:
+                    m = re.match(r'^##\s*\[(\d+\.\d+\.\d+)\]', line.strip())
+                    if m:
+                        return m.group(1)
+        except Exception:
+            pass
+
+    return "1.0.0"
 
 def bump_version(current_version, bump_type):
     parts = current_version.split('.')
@@ -28,10 +66,6 @@ def bump_version(current_version, bump_type):
         
     return f"{major}.{minor}.{patch}"
 
-def update_version_file(new_version):
-    with open(VERSION_FILE, 'w', encoding='utf-8') as f:
-        f.write(new_version + '\n')
-
 def update_changelog_file(new_version):
     today = datetime.date.today().isoformat()
     new_release_heading = f"## [{new_version}] -- {today}"
@@ -42,7 +76,6 @@ def update_changelog_file(new_version):
         with open(CHANGELOG_FILE, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Anchor precisely on markdown heading '## [unreleased]'
         if re.search(r'^## \[unreleased\]\s*$', content, flags=re.MULTILINE):
             content = re.sub(
                 r'^## \[unreleased\]\s*$',
@@ -64,17 +97,10 @@ def main():
         
     bump_type = sys.argv[1].lower().strip()
     
-    current_version = "1.0.0"
-    if os.path.exists(VERSION_FILE):
-        with open(VERSION_FILE, 'r', encoding='utf-8') as f:
-            v = f.read().strip()
-            if v:
-                current_version = v
-                
+    current_version = get_current_version()
     new_version = bump_version(current_version, bump_type)
     print(f"SemVer bump ({bump_type}): {current_version} -> {new_version}")
     
-    update_version_file(new_version)
     update_changelog_file(new_version)
     
     github_output = os.environ.get('GITHUB_OUTPUT')
