@@ -1,0 +1,82 @@
+name: 📸 Snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_tests:
+        description: 'Run automated tests'
+        required: false
+        default: true
+        type: boolean
+      dry_run:
+        description: 'Dry run (preview snapshot without tagging or pushing)'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    name: 🚀 Create Snapshot Pre-Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 🔢 Calculate Snapshot Version
+        id: version_bump
+        run: |
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          python3 tools/release_version.py snapshot --branch "${{ github.ref_name }}" $DRY_RUN_FLAG
+
+      - name: 🧪 Run Automated Tests
+        if: ${{ inputs.run_tests != false }}
+        run: |
+          ./tests/run_tests.sh
+
+      - name: 🏷️ Tag & Publish Pre-Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version_bump.outputs.version }}"
+          if [ -z "$VERSION" ]; then
+            echo "Error: Version not set by version_bump step." >&2
+            exit 1
+          fi
+
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            echo "=== DRY RUN SNAPSHOT PREVIEW ==="
+            echo "Snapshot Version: v$VERSION"
+            echo "Branch Ref:       ${{ github.ref_name }}"
+            echo "Git Tag:          v$VERSION"
+            echo "GitHub Release:   v$VERSION (pre-release)"
+            echo "Dry run enabled: no tags or pre-releases were published."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          echo "Publishing snapshot: v$VERSION (branch: ${{ github.ref_name }})"
+          
+          git tag -a "v$VERSION" -m "Snapshot release v$VERSION"
+          git push origin "v$VERSION"
+
+          # Create GitHub Pre-Release
+          gh release create "v$VERSION" \
+            --title "Release v$VERSION" \
+            --prerelease \
+            --generate-notes

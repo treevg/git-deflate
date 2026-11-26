@@ -21,3 +21,32 @@ jobs:
       - name: 🧪 Run Automated Tests
         run: |
           ./tests/run_tests.sh
+
+  changelog:
+    name: 📝 Lint Changelog (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Verify CHANGELOG.md was updated
+        run: |
+          # Allow explicit bypass if PR title contains [skip changelog]
+          if echo "${{ github.event.pull_request.title }}" | grep -iq "\[skip changelog\]"; then
+            echo "Skipping changelog check: '[skip changelog]' found in PR title."
+            exit 0
+          fi
+
+          # Ensure the base branch ref is available
+          git fetch origin ${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }} || true
+
+          # Check if CHANGELOG.md was modified in this pull request
+          if git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -q "^CHANGELOG\.md$"; then
+            echo "✓ CHANGELOG.md has been modified in this pull request."
+          else
+            echo "::error file=CHANGELOG.md::No changes detected in CHANGELOG.md! Please document your changes under '## [unreleased]' (or include '[skip changelog]' in the PR title if exempt)."
+            exit 1
+          fi
