@@ -48,8 +48,21 @@ jobs:
           python3 tools/release_version.py ${{ github.event.inputs.bump }} $DRY_RUN_FLAG
 
       - name: 🧪 Run Automated Tests
-        run: |
-          ./tests/run_tests.sh
+        uses: ./.github/actions/run-tests
+
+      - name: ✏️ Prepare Release Codebase Changes
+        if: ${{ inputs.dry_run != true }}
+        uses: ./.github/actions/prepare-release
+        with:
+          version: ${{ steps.version_bump.outputs.version }}
+          is_prerelease: 'false'
+
+      - name: 🚀 Deploy Production Release
+        if: ${{ inputs.dry_run != true }}
+        uses: ./.github/actions/deploy
+        with:
+          target: production
+          version: ${{ steps.version_bump.outputs.version }}
 
       - name: 🏷️ Commit, Tag & Push to Main
         env:
@@ -78,6 +91,7 @@ jobs:
           echo "Releasing version: v$VERSION"
           
           git add CHANGELOG.md
+          git add -u
           git commit -m "chore(release): v$VERSION"
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin main --follow-tags

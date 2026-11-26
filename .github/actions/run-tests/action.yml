@@ -1,0 +1,10 @@
+name: '🧪 Run Automated Tests'
+description: 'Runs project-specific automated test suite'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: 🧪 Run Automated Tests
+      shell: bash
+      run: |
+        ./tests/run_tests.sh

@@ -1,0 +1,44 @@
+name: '✏️ Prepare Release Codebase Changes'
+description: 'Applies on-the-fly codebase modifications before release commits (e.g., bumping package.json, Cargo.toml, or version constants)'
+
+inputs:
+  version:
+    description: 'Target release or snapshot version (without v prefix)'
+    required: true
+  is_prerelease:
+    description: 'Whether this is a branch snapshot pre-release (true/false)'
+    required: false
+    default: 'false'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: ✏️ Apply On-The-Fly Version Changes
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        IS_PRERELEASE="${{ inputs.is_prerelease }}"
+        
+        echo "=== ✏️ Prepare Release Codebase Changes ==="
+        echo "Version:        v$VERSION"
+        echo "Is Pre-Release: $IS_PRERELEASE"
+        
+        # ----------------------------------------------------------------------
+        # Place your project-specific on-the-fly modifications here.
+        # Any tracked files modified here are automatically committed by the release workflow!
+        #
+        # Examples:
+        #
+        # 1. Node.js (package.json & package-lock.json):
+        #    npm version "$VERSION" --no-git-tag-version --allow-same-version
+        #
+        # 2. Python (pyproject.toml):
+        #    sed -i "s/^version = .*/version = \"$VERSION\"/" pyproject.toml
+        #
+        # 3. Rust (Cargo.toml):
+        #    sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+        #
+        # 4. Custom VERSION / constants file:
+        #    echo "$VERSION" > VERSION
+        # ----------------------------------------------------------------------
+        echo "Codebase preparation completed."

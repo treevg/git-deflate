@@ -44,8 +44,21 @@ jobs:
 
       - name: 🧪 Run Automated Tests
         if: ${{ inputs.run_tests != false }}
-        run: |
-          ./tests/run_tests.sh
+        uses: ./.github/actions/run-tests
+
+      - name: ✏️ Prepare Snapshot Codebase Changes
+        if: ${{ inputs.dry_run != true }}
+        uses: ./.github/actions/prepare-release
+        with:
+          version: ${{ steps.version_bump.outputs.version }}
+          is_prerelease: 'true'
+
+      - name: 🧪 Deploy Snapshot / Staging
+        if: ${{ inputs.dry_run != true }}
+        uses: ./.github/actions/deploy
+        with:
+          target: staging
+          version: ${{ steps.version_bump.outputs.version }}
 
       - name: 🏷️ Tag & Publish Pre-Release
         env:
@@ -70,6 +83,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
+          # Commit on-the-fly codebase changes if any occurred
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git add -u
+            git commit -m "chore(snapshot): v$VERSION [skip ci]"
+            git push origin "${{ github.ref_name }}"
+          fi
+
           echo "Publishing snapshot: v$VERSION (branch: ${{ github.ref_name }})"
           
           git tag -a "v$VERSION" -m "Snapshot release v$VERSION"

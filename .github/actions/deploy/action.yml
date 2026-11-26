@@ -1,0 +1,76 @@
+name: '🚀 Deploy Artifact'
+description: 'Executes deployment steps for staging snapshots or production releases'
+
+inputs:
+  target:
+    description: 'Deployment target (staging or production)'
+    required: true
+    default: 'staging'
+  version:
+    description: 'Release or snapshot version string'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    # --------------------------------------------------------------------------
+    # 🧪 Snapshot / Pre-Release Deployment (Staging / Dev / Test Channel)
+    # --------------------------------------------------------------------------
+    - name: 🧪 Deploy Snapshot / Staging
+      if: inputs.target == 'staging'
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        echo "=== 🧪 DEPLOYING SNAPSHOT PRE-RELEASE: $VERSION ==="
+        echo "Target Environment: Staging / Pre-Release Channel"
+        
+        # ----------------------------------------------------------------------
+        # Place your staging deployment commands here. Examples:
+        #
+        # 1. Package Registry (pre-release tag):
+        #    npm publish --tag next
+        #    twine upload --repository testpypi dist/*
+        #
+        # 2. Docker container (beta/snapshot tag):
+        #    docker build -t my-org/my-app:$VERSION .
+        #    docker push my-org/my-app:$VERSION
+        #
+        # 3. Notification (Slack / Discord webhook):
+        #    curl -X POST -H 'Content-type: application/json' \
+        #      --data "{\"text\":\"🧪 New snapshot pre-release published: $VERSION\"}" \
+        #      "$SLACK_WEBHOOK_URL"
+        # ----------------------------------------------------------------------
+        echo "Snapshot deployment completed successfully."
+
+    # --------------------------------------------------------------------------
+    # 🚀 Official Release Deployment (Production / Latest Channel)
+    # --------------------------------------------------------------------------
+    - name: 🚀 Deploy Production Release
+      if: inputs.target == 'production'
+      shell: bash
+      run: |
+        VERSION="${{ inputs.version }}"
+        echo "=== 🚀 DEPLOYING PRODUCTION RELEASE: $VERSION ==="
+        echo "Target Environment: Production / Official Release"
+        
+        # ----------------------------------------------------------------------
+        # Place your production deployment commands here. Examples:
+        #
+        # 1. Package Registry (official release):
+        #    npm publish --access public
+        #    twine upload dist/*
+        #
+        # 2. Docker container (version + latest tag):
+        #    docker build -t my-org/my-app:$VERSION -t my-org/my-app:latest .
+        #    docker push my-org/my-app:$VERSION
+        #    docker push my-org/my-app:latest
+        #
+        # 3. Cloud / Server Deployment:
+        #    # e.g., deploy to AWS ECS, Kubernetes, Vercel, or custom server
+        #
+        # 4. Release Announcement:
+        #    curl -X POST -H 'Content-type: application/json' \
+        #      --data "{\"text\":\"🚀 Version $VERSION is now live in production!\"}" \
+        #      "$SLACK_WEBHOOK_URL"
+        # ----------------------------------------------------------------------
+        echo "Production deployment completed successfully."
