@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+set -e
+
+# git-deflate: Auto-stashes uncommitted changes, cleans untracked/ignored data,
+# updates to latest default branch, empties working directory (via sparse-checkout),
+# saves branch and stash state, drops marker files (DEFLATED.md, inflate.sh), and purges LFS cache.
+# Can be run directly as `git deflate` or `git-deflate`.
+
+show_help() {
+  cat << 'EOF'
+Usage: git deflate [options]
+
+By default (no options), performs a dry-run preview of all targets scheduled
+for removal, then prompts whether to proceed with execution.
+
+Deflates the current Git repository to absolute minimal size:
+  1. Auto-stashes any uncommitted changes (tracked & untracked) to restore on inflate.
+  2. Records the currently active branch to restore upon inflation.
+  3. Checks out the primary branch (main/master) and pulls latest changes.
+  4. Removes all ignored files (e.g., Unity Library/Temp/Logs) and untracked files,
+     while strictly preserving any folder named 'Local' (e.g., Assets/Local).
+  5. Empties tracked files from the working directory (preserving /Local/ and .git).
+  6. Purges the local Git LFS cache (.git/lfs).
+  7. Creates a DEFLATED.md summary and an executable ./inflate.sh restore script.
+
+Options:
+  -n, --dry-run   Show dry-run preview and exit without prompting.
+  -y, --yes       Proceed with execution without prompting.
+  --no-stash      Disable auto-stashing (fails if uncommitted changes exist).
+  -f, --force     Force deflation without prompt (disables safety checks).
+  -h, --help      Show this help message.
+
+To re-inflate later, run: ./inflate.sh
+EOF
+}
+
+FORCE=false
+DRY_RUN=false
+ASSUME_YES=false
+NO_STASH=false
+
+for arg in "$@"; do
+  case $arg in
+    -n|--dry-run)
+      DRY_RUN=true
+      ;;
+    -y|--yes)
+      ASSUME_YES=true
+      ;;
+    --no-stash)
+      NO_STASH=true
+      ;;
+    -f|--force)
+      FORCE=true
+      ASSUME_YES=true
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg"
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+# Ensure inside a git repository
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: Not a git repository (or any of the parent directories)." >&2
+  exit 1
+fi
+
+ROOT_DIR=$(git rev-parse --show-toplevel)
+cd "$ROOT_DIR"
+
+IS_SPARSE=$(git config --bool core.sparseCheckout 2>/dev/null || echo "false")
+
+# Check for uncommitted changes (tracked or untracked, excluding marker files and /Local/)
+if [ "$IS_SPARSE" = "true" ]; then
+  DIRTY_COUNT=$(git status --porcelain 2>/dev/null | grep -v " Local/" | grep -v "/Local/" | grep -v " DEFLATED.md" | grep -v " inflate.sh" | grep -v "^ D " | grep -v "^.D " | wc -l | tr -d ' ')
+else
+  DIRTY_COUNT=$(git status --porcelain 2>/dev/null | grep -v " Local/" | grep -v "/Local/" | grep -v " DEFLATED.md" | grep -v " inflate.sh" | wc -l | tr -d ' ')
+fi
+
+HAS_DIRTY=false
+if [ "$DIRTY_COUNT" -gt 0 ]; then
+  HAS_DIRTY=true
+  if [ "$NO_STASH" = true ] && [ "$FORCE" = false ]; then
+    echo "Error: You have $DIRTY_COUNT uncommitted change(s) and --no-stash was passed." >&2
+    echo "Commit, stash manually, or remove --no-stash to auto-stash." >&2
+    exit 1
+  fi
+fi
+
+# Detect active branch and default branch (origin/HEAD -> main or master)
+CURRENT_BRANCH=$(git branch --show-current)
+
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
+if [ -z "$DEFAULT_BRANCH" ]; then
+  if git show-ref --verify --quiet refs/heads/main; then
+    DEFAULT_BRANCH="main"
+  elif git show-ref --verify --quiet refs/heads/master; then
+    DEFAULT_BRANCH="master"
+  else
+    DEFAULT_BRANCH="$CURRENT_BRANCH"
+  fi
+fi
+
+echo "=== git deflate ==="
+echo "Repository: $ROOT_DIR"
+INITIAL_SIZE=$(du -sh "$ROOT_DIR" | cut -f1)
+echo "Current size: $INITIAL_SIZE"
+
+# Preview branch operation
+if [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
+  echo "--> Active branch: '$CURRENT_BRANCH' (will be saved and restored upon inflate)"
+  echo "--> Target branch: switch to '$DEFAULT_BRANCH' and pull latest"
+else
+  echo "--> Active branch: '$CURRENT_BRANCH' (will pull latest from origin)"
+fi
+
+# Preview file cleanups
+CLEAN_PREVIEW=$(git clean -ndx \
+  -e "Local" \
+  -e "Local/*" \
+  -e "*/Local" \
+  -e "*/Local/*" \
+  -e "*/**/Local" \
+  -e "*/**/Local/*" \
+  -e "DEFLATED.md" \
+  -e "inflate.sh" 2>/dev/null || true)
+
+echo ""
+echo "--> Targets scheduled for removal / actions:"
+HAS_ITEMS=false
+
+if [ "$HAS_DIRTY" = true ]; then
+  HAS_ITEMS=true
+  echo "  [stash]   $DIRTY_COUNT uncommitted change(s) -> will auto-stash and restore upon inflate"
+fi
+
+if [ -n "$CLEAN_PREVIEW" ]; then
+  HAS_ITEMS=true
+  echo "$CLEAN_PREVIEW" | sed 's/^Would remove /  [remove]  /'
+fi
+
+IS_SPARSE=$(git config --bool core.sparseCheckout 2>/dev/null || echo "false")
+if [ "$IS_SPARSE" != "true" ]; then
+  HAS_ITEMS=true
+  TRACKED_COUNT=$(git ls-files | wc -l | tr -d ' ')
+  echo "  [empty]   Working directory ($TRACKED_COUNT tracked files -> 0, preserving /Local/)"
+fi
+
+if [ -d ".git/lfs" ]; then
+  HAS_ITEMS=true
+  LFS_SIZE=$(du -sh .git/lfs | cut -f1)
+  echo "  [purge]   .git/lfs/ (Git LFS binary cache: $LFS_SIZE)"
+fi
+
+if [ "$HAS_ITEMS" = false ]; then
+  echo "  (Nothing to clean or purge. Repository is already deflated!)"
+fi
+echo ""
+
+# If explicit dry run requested (-n / --dry-run), exit now
+if [ "$DRY_RUN" = true ]; then
+  echo "=== Dry run complete. No changes were made. ==="
+  exit 0
+fi
+
+# Prompt before any real execution
+if [ "$HAS_ITEMS" = true ] && [ "$ASSUME_YES" = false ]; then
+  if [ -t 0 ]; then
+    read -r -p "Proceed with execution? [y/N]: " response
+  else
+    read -r response || response="n"
+  fi
+  case "$response" in
+    [yY][eE][sS]|[yY])
+      ;;
+    *)
+      echo "Aborted. No changes were made."
+      exit 0
+      ;;
+  esac
+  echo ""
+fi
+
+# 1. Auto-stash uncommitted changes if dirty
+STASH_HASH=""
+if [ "$HAS_DIRTY" = true ] && [ "$NO_STASH" = false ]; then
+  STASH_TIMESTAMP=$(date +%s)
+  STASH_MSG="git-deflate-autostash-$STASH_TIMESTAMP"
+  echo "--> Auto-stashing $DIRTY_COUNT uncommitted change(s)..."
+  git stash push -u -m "$STASH_MSG"
+  STASH_HASH=$(git rev-parse refs/stash 2>/dev/null || true)
+fi
+
+# 2. Switch to default branch & pull
+if [ -n "$DEFAULT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]; then
+  echo "--> Switching to $DEFAULT_BRANCH..."
+  git checkout "$DEFAULT_BRANCH"
+fi
+
+if git remote | grep -q "origin"; then
+  echo "--> Pulling latest $DEFAULT_BRANCH from origin..."
+  git pull origin "$DEFAULT_BRANCH" || echo "Warning: git pull failed or offline; continuing with local $DEFAULT_BRANCH."
+fi
+
+# 3. Clean ignored and untracked files (preserving /Local/ folders)
+echo "--> Cleaning ignored and untracked files (preserving /Local/ folders)..."
+git clean -fdx \
+  -e "Local" \
+  -e "Local/*" \
+  -e "*/Local" \
+  -e "*/Local/*" \
+  -e "*/**/Local" \
+  -e "*/**/Local/*" \
+  -e "DEFLATED.md" \
+  -e "inflate.sh"
+
+# 4. Empty working directory of tracked files (preserving /Local/ folders)
+echo "--> Emptying working directory (sparse-checkout)..."
+git sparse-checkout init
+git sparse-checkout set --no-cone "" 2>/dev/null || git sparse-checkout set --no-cone ""
+
+# 5. Purge LFS cache
+if [ -d ".git/lfs" ]; then
+  echo "--> Purging local Git LFS cache (.git/lfs)..."
+  rm -rf .git/lfs
+fi
+
+# 6. Save state & drop marker files
+echo "--> Saving state and dropping marker files..."
+cat << EOF > "$ROOT_DIR/.git/deflate_state"
+BRANCH=$CURRENT_BRANCH
+STASH_HASH=$STASH_HASH
+EOF
+
+DEFLATE_DATE=$(date '+%Y-%m-%d %H:%M:%S')
+
+STASH_NOTE="None"
+if [ -n "$STASH_HASH" ]; then
+  STASH_NOTE="Stashed ($STASH_HASH) - will be re-applied automatically on inflate"
+fi
+
+cat << EOF > "$ROOT_DIR/DEFLATED.md"
+# Repository Deflated
+
+This repository was deflated to save disk space.
+
+- **Deflated at:** $DEFLATE_DATE
+- **Saved active branch:** \`$CURRENT_BRANCH\`
+- **Uncommitted changes:** $STASH_NOTE
+
+---
+
+### How to restore:
+
+Run the local restore script:
+\`\`\`bash
+./inflate.sh
+\`\`\`
+
+This will restore all project files, switch back to \`$CURRENT_BRANCH\`, re-apply your stashed changes, download all Git LFS assets, and clean up this file.
+EOF
+
+cat << EOF > "$ROOT_DIR/inflate.sh"
+#!/usr/bin/env bash
+set -e
+
+# ==============================================================================
+# Self-Contained Repository Inflation Script
+# Generated automatically by git deflate on $DEFLATE_DATE
+# Works on any machine with standard git and bash (no custom tools required).
+# ==============================================================================
+
+DEFAULT_SAVED_BRANCH="$CURRENT_BRANCH"
+DEFAULT_SAVED_STASH="$STASH_HASH"
+EOF
+
+cat << 'EOF_BODY' >> "$ROOT_DIR/inflate.sh"
+
+show_help() {
+  cat << 'HELP'
+Usage: ./inflate.sh [options]
+
+Inflates the current Git repository for active work:
+  1. Restores all files to the working directory (disables sparse-checkout).
+  2. Pulls latest commits from origin.
+  3. Switches back to the branch that was active prior to deflation.
+  4. Downloads all Git LFS binary assets with multi-threaded live progress.
+  5. Re-applies any uncommitted changes that were auto-stashed during deflation.
+  6. Cleans up DEFLATED.md and this inflate.sh script.
+
+Options:
+  -h, --help    Show this help message.
+HELP
+}
+
+for arg in "$@"; do
+  case $arg in
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg"
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+# Ensure inside a git repository
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Error: Not a git repository (or any of the parent directories)." >&2
+  exit 1
+fi
+
+ROOT_DIR=$(git rev-parse --show-toplevel)
+cd "$ROOT_DIR"
+
+echo "=== Inflating Repository ==="
+echo "Repository: $ROOT_DIR"
+
+# Check if a previous branch or stash was recorded
+SAVED_BRANCH=""
+SAVED_STASH=""
+if [ -f "$ROOT_DIR/.git/deflate_state" ]; then
+  SAVED_BRANCH=$(grep '^BRANCH=' "$ROOT_DIR/.git/deflate_state" 2>/dev/null | cut -d'=' -f2- | tr -d '\r\n' || true)
+  SAVED_STASH=$(grep '^STASH_HASH=' "$ROOT_DIR/.git/deflate_state" 2>/dev/null | cut -d'=' -f2- | tr -d '\r\n' || true)
+  if [ -z "$SAVED_BRANCH" ]; then
+    SAVED_BRANCH=$(cat "$ROOT_DIR/.git/deflate_state" | tr -d '\r\n')
+  fi
+fi
+
+# Fallback to baked-in defaults if .git/deflate_state is missing
+if [ -z "$SAVED_BRANCH" ]; then
+  SAVED_BRANCH="$DEFAULT_SAVED_BRANCH"
+fi
+if [ -z "$SAVED_STASH" ]; then
+  SAVED_STASH="$DEFAULT_SAVED_STASH"
+fi
+
+# 1. Restore all tracked files instantly as pointer files (skipping slow sequential smudge)
+echo "--> Restoring working tree file structure..."
+GIT_LFS_SKIP_SMUDGE=1 git sparse-checkout disable 2>/dev/null || true
+
+# 2. Pull latest on the current (base) branch
+CURRENT_BRANCH=$(git branch --show-current)
+if git remote | grep -q "origin"; then
+  echo "--> Pulling latest $CURRENT_BRANCH from origin..."
+  git pull --progress origin "$CURRENT_BRANCH" 2>/dev/null || echo "Warning: git pull failed or offline; continuing with local $CURRENT_BRANCH."
+fi
+
+# 3. Switch back to the saved pre-deflate branch if different
+if [ -n "$SAVED_BRANCH" ] && [ "$SAVED_BRANCH" != "$CURRENT_BRANCH" ]; then
+  echo "--> Returning to saved pre-deflate branch: '$SAVED_BRANCH'..."
+  git checkout "$SAVED_BRANCH" 2>/dev/null || echo "Note: Using local branch $SAVED_BRANCH."
+  if git remote | grep -q "origin"; then
+    echo "--> Pulling latest $SAVED_BRANCH from origin..."
+    git pull --progress origin "$SAVED_BRANCH" 2>/dev/null || echo "Note: Using local branch $SAVED_BRANCH."
+  fi
+fi
+
+# 4. Pull LFS assets with parallel downloads & live progress
+if command -v git-lfs >/dev/null 2>&1; then
+  if [ -f ".gitattributes" ] && grep -q "filter=lfs" ".gitattributes"; then
+    LFS_COUNT=$(git lfs ls-files 2>/dev/null | wc -l | tr -d ' ')
+    echo "--> Downloading Git LFS binaries ($LFS_COUNT files: plugins, textures, replays)..."
+    git lfs pull
+  fi
+fi
+
+# 5. Re-apply any auto-stashed changes
+if [ -n "$SAVED_STASH" ]; then
+  echo "--> Checking for auto-stashed changes ($SAVED_STASH)..."
+  MATCH_REF=$(git stash list --format="%gd %H" 2>/dev/null | grep "$SAVED_STASH" | awk '{print $1}' | head -n1 || true)
+  if [ -n "$MATCH_REF" ]; then
+    echo "--> Restoring uncommitted changes from $MATCH_REF..."
+    if git stash apply "$SAVED_STASH" >/dev/null 2>&1; then
+      git stash drop "$MATCH_REF" >/dev/null 2>&1 || true
+      echo "--> Uncommitted changes successfully restored and stash cleared."
+    else
+      echo "Warning: Stash could not be cleanly applied automatically due to conflicts with remote updates."
+      echo "Your changes are safely preserved in Git stash as: $MATCH_REF"
+      echo "Inspect or apply manually using: git stash apply $MATCH_REF"
+    fi
+  else
+    echo "Note: Stash $SAVED_STASH was not found on the stash list (may have been cleared manually)."
+  fi
+fi
+
+# 6. Clean up marker files
+rm -f "$ROOT_DIR/DEFLATED.md" "$ROOT_DIR/.git/deflate_state"
+
+CURRENT_SIZE=$(du -sh "$ROOT_DIR" | cut -f1)
+ACTIVE_BRANCH=$(git branch --show-current)
+echo ""
+echo "=== Inflate complete! ==="
+echo "Active branch: $ACTIVE_BRANCH"
+echo "Current size: $CURRENT_SIZE"
+echo "Cleaned up marker files. Ready for development!"
+
+# Self-remove this script as the final action
+rm -f "$0" 2>/dev/null || true
+EOF_BODY
+chmod +x "$ROOT_DIR/inflate.sh"
+
+FINAL_SIZE=$(du -sh "$ROOT_DIR" | cut -f1)
+echo ""
+echo "=== Deflate complete! ==="
+echo "Size: $INITIAL_SIZE -> $FINAL_SIZE"
+echo "Saved active branch: '$CURRENT_BRANCH'"
+if [ -n "$STASH_HASH" ]; then
+  echo "Auto-stashed: Yes ($STASH_HASH)"
+fi
+echo "Created in root: DEFLATED.md, ./inflate.sh"
+echo "To re-inflate later, simply run: ./inflate.sh"
