@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [unreleased]
 
+## [1.2.0] -- 2026-11-26
 ### Added
 - Modular composite GitHub Actions (`.github/actions/run-tests/action.yml`, `.github/actions/prepare-release/action.yml`, and `.github/actions/deploy/action.yml`) to cleanly separate test execution, codebase preparation, and deployment steps from workflow definitions.
 - Dedicated workflows splitting release engineering: `release.yml` (official SemVer releases on main with `patch|minor|major` dropdown) and `snapshot.yml` (branch pre-releases on any branch).
