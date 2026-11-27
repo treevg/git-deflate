@@ -18,6 +18,9 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: write
+
 jobs:
   release:
     uses: treevg/github-workflows/.github/workflows/release.yml@v1
