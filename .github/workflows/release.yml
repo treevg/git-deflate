@@ -18,85 +18,10 @@ on:
         default: false
         type: boolean
 
-permissions:
-  contents: write
-
 jobs:
   release:
-    name: 🚀 Create Release & Tag
-    runs-on: ubuntu-latest
-    if: github.ref_name == 'main'
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: 🔢 Bump Version & Update Changelog
-        id: version_bump
-        run: |
-          DRY_RUN_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_RUN_FLAG="--dry-run"
-          fi
-          python3 .github/scripts/release_version.py ${{ github.event.inputs.bump }} $DRY_RUN_FLAG
-
-      - name: 🧪 Run Automated Tests
-        uses: ./.ci/actions/run-tests
-
-      - name: ✏️ Prepare Release Codebase Changes
-        if: ${{ inputs.dry_run != true }}
-        uses: ./.ci/actions/prepare-release
-        with:
-          version: ${{ steps.version_bump.outputs.version }}
-          is_prerelease: 'false'
-
-      - name: 🚀 Deploy Production Release
-        if: ${{ inputs.dry_run != true }}
-        uses: ./.ci/actions/deploy
-        with:
-          target: production
-          version: ${{ steps.version_bump.outputs.version }}
-
-      - name: 🏷️ Commit, Tag & Push to Main
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version_bump.outputs.version }}"
-          if [ -z "$VERSION" ]; then
-            echo "Error: Version not set by version_bump step." >&2
-            exit 1
-          fi
-
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "=== DRY RUN RELEASE PREVIEW ==="
-            echo "Target Version: v$VERSION"
-            echo "Commit Message: chore(release): v$VERSION"
-            echo "Git Tag:        v$VERSION"
-            echo "Target Branch:  main"
-            echo "GitHub Release: v$VERSION"
-            echo "Dry run enabled: no commits, tags, or GitHub releases were published."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          echo "Releasing version: v$VERSION"
-          
-          git add CHANGELOG.md
-          git add -u
-          git commit -m "chore(release): v$VERSION"
-          git tag -a "v$VERSION" -m "Release v$VERSION"
-          git push origin main --follow-tags
-
-          # Create GitHub Release
-          gh release create "v$VERSION" \
-            --title "Release v$VERSION" \
-            --generate-notes
+    uses: treevg/github-workflows/.github/workflows/release.yml@v1
+    with:
+      bump: ${{ inputs.bump }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit

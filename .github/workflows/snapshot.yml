@@ -4,99 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       run_tests:
-        description: 'Run automated tests'
+        description: 'Run automated test suite before pre-release'
         required: false
         default: true
         type: boolean
       dry_run:
-        description: 'Dry run (preview snapshot without tagging or pushing)'
+        description: 'Dry run (preview snapshot version without committing, tagging, or pushing)'
         required: false
         default: false
         type: boolean
 
-permissions:
-  contents: write
-
 jobs:
   snapshot:
-    name: 🚀 Create Snapshot Pre-Release
-    runs-on: ubuntu-latest
-    steps:
-      - name: 📥 Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: 🐍 Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: 🔢 Calculate Snapshot Version
-        id: version_bump
-        run: |
-          DRY_RUN_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            DRY_RUN_FLAG="--dry-run"
-          fi
-          python3 .github/scripts/release_version.py snapshot --branch "${{ github.ref_name }}" $DRY_RUN_FLAG
-
-      - name: 🧪 Run Automated Tests
-        if: ${{ inputs.run_tests != false }}
-        uses: ./.ci/actions/run-tests
-
-      - name: ✏️ Prepare Snapshot Codebase Changes
-        if: ${{ inputs.dry_run != true }}
-        uses: ./.ci/actions/prepare-release
-        with:
-          version: ${{ steps.version_bump.outputs.version }}
-          is_prerelease: 'true'
-
-      - name: 🧪 Deploy Snapshot / Staging
-        if: ${{ inputs.dry_run != true }}
-        uses: ./.ci/actions/deploy
-        with:
-          target: staging
-          version: ${{ steps.version_bump.outputs.version }}
-
-      - name: 🏷️ Tag & Publish Pre-Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION="${{ steps.version_bump.outputs.version }}"
-          if [ -z "$VERSION" ]; then
-            echo "Error: Version not set by version_bump step." >&2
-            exit 1
-          fi
-
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
-            echo "=== DRY RUN SNAPSHOT PREVIEW ==="
-            echo "Snapshot Version: v$VERSION"
-            echo "Branch Ref:       ${{ github.ref_name }}"
-            echo "Git Tag:          v$VERSION"
-            echo "GitHub Release:   v$VERSION (pre-release)"
-            echo "Dry run enabled: no tags or pre-releases were published."
-            exit 0
-          fi
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          # Commit on-the-fly codebase changes if any occurred
-          if ! git diff --quiet || ! git diff --cached --quiet; then
-            git add -u
-            git commit -m "chore(snapshot): v$VERSION [skip ci]"
-            git push origin "${{ github.ref_name }}"
-          fi
-
-          echo "Publishing snapshot: v$VERSION (branch: ${{ github.ref_name }})"
-          
-          git tag -a "v$VERSION" -m "Snapshot release v$VERSION"
-          git push origin "v$VERSION"
-
-          # Create GitHub Pre-Release
-          gh release create "v$VERSION" \
-            --title "Release v$VERSION" \
-            --prerelease \
-            --generate-notes
+    uses: treevg/github-workflows/.github/workflows/snapshot.yml@v1
+    with:
+      run_tests: ${{ inputs.run_tests }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
