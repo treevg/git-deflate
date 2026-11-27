@@ -40,22 +40,22 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-          python3 tools/release_version.py snapshot --branch "${{ github.ref_name }}" $DRY_RUN_FLAG
+          python3 .github/scripts/release_version.py snapshot --branch "${{ github.ref_name }}" $DRY_RUN_FLAG
 
       - name: 🧪 Run Automated Tests
         if: ${{ inputs.run_tests != false }}
-        uses: ./.github/actions/run-tests
+        uses: ./.ci/actions/run-tests
 
       - name: ✏️ Prepare Snapshot Codebase Changes
         if: ${{ inputs.dry_run != true }}
-        uses: ./.github/actions/prepare-release
+        uses: ./.ci/actions/prepare-release
         with:
           version: ${{ steps.version_bump.outputs.version }}
           is_prerelease: 'true'
 
       - name: 🧪 Deploy Snapshot / Staging
         if: ${{ inputs.dry_run != true }}
-        uses: ./.github/actions/deploy
+        uses: ./.ci/actions/deploy
         with:
           target: staging
           version: ${{ steps.version_bump.outputs.version }}

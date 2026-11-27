@@ -45,21 +45,21 @@ jobs:
           if [ "${{ inputs.dry_run }}" = "true" ]; then
             DRY_RUN_FLAG="--dry-run"
           fi
-          python3 tools/release_version.py ${{ github.event.inputs.bump }} $DRY_RUN_FLAG
+          python3 .github/scripts/release_version.py ${{ github.event.inputs.bump }} $DRY_RUN_FLAG
 
       - name: 🧪 Run Automated Tests
-        uses: ./.github/actions/run-tests
+        uses: ./.ci/actions/run-tests
 
       - name: ✏️ Prepare Release Codebase Changes
         if: ${{ inputs.dry_run != true }}
-        uses: ./.github/actions/prepare-release
+        uses: ./.ci/actions/prepare-release
         with:
           version: ${{ steps.version_bump.outputs.version }}
           is_prerelease: 'false'
 
       - name: 🚀 Deploy Production Release
         if: ${{ inputs.dry_run != true }}
-        uses: ./.github/actions/deploy
+        uses: ./.ci/actions/deploy
         with:
           target: production
           version: ${{ steps.version_bump.outputs.version }}

@@ -6,7 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [unreleased]
 
+### Changed
+- Relocated project-specific composite actions from `.github/actions/*` to `.ci/actions/*` to cleanly decouple repository customization from GitHub Actions workflow orchestration.
+- Relocated CI release script `tools/release_version.py` into `.github/scripts/release_version.py` to keep the project root clean and isolate GitHub Actions automation inside `.github/`.
+
 ## [1.2.0] -- 2026-11-26
+
 ### Added
 - Modular composite GitHub Actions (`.github/actions/run-tests/action.yml`, `.github/actions/prepare-release/action.yml`, and `.github/actions/deploy/action.yml`) to cleanly separate test execution, codebase preparation, and deployment steps from workflow definitions.
 - Dedicated workflows splitting release engineering: `release.yml` (official SemVer releases on main with `patch|minor|major` dropdown) and `snapshot.yml` (branch pre-releases on any branch).
