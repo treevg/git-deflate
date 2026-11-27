@@ -6,6 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [unreleased]
 
+## [1.2.1] -- 2026-11-27
 ### Changed
 - Relocated project-specific composite actions from `.github/actions/*` to `.ci/actions/*` to cleanly decouple repository customization from GitHub Actions workflow orchestration.
 - Relocated CI release script `tools/release_version.py` into `.github/scripts/release_version.py` to keep the project root clean and isolate GitHub Actions automation inside `.github/`.
